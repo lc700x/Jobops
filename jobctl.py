@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import getpass
 import json
+import platform
 from collections import Counter
 from copy import deepcopy
 from pathlib import Path
@@ -21,7 +22,11 @@ from auth import (
     IMAPMailboxProvider,
     IMAPProviderConfig,
 )
-from auth.credentials import CredentialStore, MacOSSecurityCredentialStore
+from auth.credentials import (
+    CredentialStore,
+    MacOSSecurityCredentialStore,
+    WindowsCredentialStore,
+)
 from core.application_engine import JobApplicationEngine
 from core.browser_broker import lease_browser_session
 from core.bundles import (
@@ -53,6 +58,22 @@ SUPPORTED_ATS = frozenset({"greenhouse", "lever", "ashby", "jobvite", "workday"}
 DEFAULT_MAILBOX_KEYCHAIN_SERVICE = "com.jobops.mailbox.imap"
 
 
+def _credential_store_for_host() -> CredentialStore:
+    """Use the host's OS vault while keeping legacy injection compatible."""
+
+    if platform.system() == "Windows":
+        return WindowsCredentialStore()
+    return MacOSSecurityCredentialStore()
+
+
+def _credential_store_label() -> str:
+    return (
+        "windows_credential_manager"
+        if platform.system() == "Windows"
+        else "macos_keychain"
+    )
+
+
 def _json_print(value: Any) -> None:
     print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, default=str))
 
@@ -61,7 +82,7 @@ def _mailbox_verifier(
     vault: CandidateVault,
     store: CredentialStore,
 ) -> CorrelatedMailboxVerifier | None:
-    """Build the explicitly enabled, Keychain-backed mailbox verifier.
+    """Build the explicitly enabled, OS-credential-backed mailbox verifier.
 
     The account is taken from the canonical private candidate facts.  The
     private policy contains only non-secret connection metadata; an incomplete
@@ -364,13 +385,24 @@ def _materials_required_outcome(
 def cmd_init(args: argparse.Namespace) -> int:
     home = PrivateHome(Path(args.home).expanduser().resolve()) if args.home else PrivateHome.discover()
     paths = home.ensure()
-    store = MacOSSecurityCredentialStore()
+    store = _credential_store_for_host()
     load_or_create_permit_secret(store)
     _json_print(
         {
             "private_home": str(paths.root),
-            "permissions": {"directories": "0700", "files": "0600"},
-            "permit_key": "stored_in_macos_keychain",
+            "permissions": (
+                {
+                    "directories": "current user and Local System ACL",
+                    "files": "current user and Local System ACL",
+                }
+                if platform.system() == "Windows"
+                else {"directories": "0700", "files": "0600"}
+            ),
+            "permit_key": (
+                "stored_in_windows_credential_manager"
+                if platform.system() == "Windows"
+                else "stored_in_macos_keychain"
+            ),
             "profile_initialized": paths.profile_facts.is_file(),
             "queue_initialized": paths.job_queue.is_file(),
         }
@@ -479,7 +511,7 @@ def cmd_mailbox(args: argparse.Namespace) -> int:
         _json_print(
             {
                 "mailbox_verifier": "disabled",
-                "credential": "left_in_keychain",
+                "credential": f"left_in_{_credential_store_label()}",
             }
         )
         return 0
@@ -495,10 +527,10 @@ def cmd_mailbox(args: argparse.Namespace) -> int:
         mailbox=args.mailbox.strip(),
     )
     config.validate()
-    password = getpass.getpass("IMAP/app password (stored only in macOS Keychain): ")
+    password = getpass.getpass("IMAP/app password (stored in the OS credential vault): ")
     if not password:
         raise ValueError("mailbox password cannot be empty")
-    store = MacOSSecurityCredentialStore()
+    store = _credential_store_for_host()
     try:
         store.set(config.keychain_service, account, password)
     finally:
@@ -515,7 +547,7 @@ def cmd_mailbox(args: argparse.Namespace) -> int:
         {
             "mailbox_verifier": "enabled",
             "provider": "imap_read_only",
-            "credential": "stored_in_macos_keychain",
+            "credential": f"stored_in_{_credential_store_label()}",
         }
     )
     return 0
@@ -584,7 +616,7 @@ async def cmd_apply_csv(args: argparse.Namespace) -> int:
         _json_print({"queue": str(csv_path), "selected": 0})
         return 0
 
-    store = MacOSSecurityCredentialStore()
+    store = _credential_store_for_host()
     engine = JobApplicationEngine.from_private_home(
         home=home,
         credential_store=store,
@@ -715,7 +747,7 @@ async def cmd_submit_reviewed(args: argparse.Namespace) -> int:
         if args.resume_dir
         else vault.paths.master_documents
     )
-    store = MacOSSecurityCredentialStore()
+    store = _credential_store_for_host()
     engine = JobApplicationEngine.from_private_home(
         home=home,
         credential_store=store,
@@ -840,7 +872,7 @@ def cmd_invalidate_review(args: argparse.Namespace) -> int:
     )
     engine = JobApplicationEngine.from_private_home(
         home=home,
-        credential_store=MacOSSecurityCredentialStore(),
+        credential_store=_credential_store_for_host(),
     )
     run = engine.ledger.get_run(args.run_id)
     if run.state != OutcomeStatus.REVIEW_READY.value:
@@ -900,7 +932,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--home", default="", help="Override JOBOPS_HOME")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("init", help="Create Private Home and the Keychain permit key")
+    subparsers.add_parser("init", help="Create Private Home and the OS-vault permit key")
 
     migrate_parser = subparsers.add_parser("migrate", help="Import an ApplyPilot workflow privately")
     migrate_parser.add_argument("workflow")

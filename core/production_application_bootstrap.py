@@ -11,7 +11,6 @@ import hashlib
 import importlib
 import json
 import os
-import stat
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -26,7 +25,7 @@ from adapters.preparation_agents import (
     ProductionPreparationAgentAdapters,
     build_production_preparation_agent_adapters,
 )
-from auth.credentials import CredentialStore, MacOSSecurityCredentialStore
+from auth.credentials import CredentialStore, default_credential_store
 from core.application_answers import (
     ApplicationAnswerPolicy,
     PrivateHomeApplicationFactProvider,
@@ -54,6 +53,7 @@ from core.prepared_cover_letter_material import (
     DefaultManagedCoverLetterTemplateProvider,
 )
 from core.private_home import PrivateHome, containing_git_worktree
+from core.private_permissions import has_private_permissions, is_reparse_point
 from core.production_application_preparation_recipe import (
     ProductionPreparationStageDependencies,
 )
@@ -723,12 +723,8 @@ def resolve_production_config_path(
     active_environ = os.environ if environ is None else environ
     raw = cli_path or active_environ.get(JOBOPS_CONFIG_FILE_ENV)
     if raw is None:
-        active_home = (home or Path.home()).expanduser()
         raw = (
-            active_home
-            / "Library"
-            / "Application Support"
-            / "Jobops"
+            PrivateHome.discover(environ=active_environ, home=home).root
             / "config"
             / "application.yaml"
         )
@@ -755,12 +751,10 @@ def load_production_application_config(
         raise ProductionApplicationBootstrapError(
             ProductionBootstrapFailure.CONFIG_PERMISSION_INVALID
         )
-    if config_path.is_symlink():
-        raise ProductionApplicationBootstrapError(
-            ProductionBootstrapFailure.CONFIG_PERMISSION_INVALID
-        )
     file_stat = config_path.stat()
-    if file_stat.st_uid != os.geteuid() or stat.S_IMODE(file_stat.st_mode) & 0o077:
+    if is_reparse_point(config_path) or not has_private_permissions(
+        config_path, is_directory=False
+    ):
         raise ProductionApplicationBootstrapError(
             ProductionBootstrapFailure.CONFIG_PERMISSION_INVALID
         )
@@ -1151,7 +1145,7 @@ async def build_production_application_bootstrap(
             ProductionBootstrapFailure.CONFIG_SCHEMA_INVALID
         )
     active_environ = os.environ if environ is None else environ
-    store = credential_store or MacOSSecurityCredentialStore()
+    store = credential_store or default_credential_store()
     owned: list[object] = []
     try:
         root = config.private_home.root.expanduser().resolve(strict=False)

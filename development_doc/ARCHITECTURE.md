@@ -45,7 +45,7 @@ flowchart TB
         MODEL["Bounded model providers"]
         DOC["Document renderer and artifact storage"]
         ATS["ATS and browser adapters"]
-        AUTH["Keychain and mailbox adapters"]
+        AUTH["OS credential manager and mailbox adapters"]
     end
 
     CMD --> D
@@ -75,7 +75,7 @@ Frontend、CLI、Scheduler 和 Codex 只能调用业务用例。它们不能直�
 
 S3d0 provides a reusable FastAPI dependency above subject-scoped business
 services. It reads only the fixed secure-cookie credential, validates its
-opaque session reference and secret hash against a Keychain-backed server-side
+opaque session reference and secret hash against an OS-credential-backed server-side
 record, and returns a typed `AuthenticatedSubjectContext`. Query, form, JSON,
 ordinary headers, profile data and conversation IDs can never supply or
 override the subject.
@@ -2208,6 +2208,29 @@ Dashboard installation is atomic: Refresh, Automation, authenticated subject
 resolution, lifecycle resources, and redacted diagnostics are installed
 together. Server budgets remain authoritative and request values cannot
 expand them.
+
+## Host credential and Private Home boundaries
+
+The credential-store contract has native macOS and Windows implementations.
+macOS calls Security.framework; Windows calls Credential Manager directly via
+the Win32 API. The service/account pair maps to an opaque credential target,
+and secret bytes are kept in the OS vault rather than argv or Private Home.
+Linux currently has no production credential-store backend.
+
+Private Home defaults to `~/Library/Application Support/Jobops` on macOS and
+`%LOCALAPPDATA%\Jobops` on Windows; `JOBOPS_HOME` overrides either location.
+POSIX storage applies owner-only 0700 directory and 0600 file modes. Windows
+storage applies a protected DACL granting full access only to the current user
+and Local System, with inheritable directory entries. Private-home migration
+secures existing files before recording the Windows marker, rejects reparse
+points and owner mismatches, and uses the same permission helper for browser
+profiles, SQLite repositories, and staged migration files. `setup.ps1` creates
+the Windows environment, installs Chromium, and initializes the private home
+and permit key in Windows Credential Manager.
+
+These host-specific storage and setup paths do not change the production
+automation readiness boundary above: Windows support for these infrastructure
+surfaces does not by itself establish a completed live ATS composition.
 
 ## S4a0 Authenticated Dashboard read layer
 

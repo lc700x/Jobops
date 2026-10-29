@@ -28,12 +28,11 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.private_home import (
-    PRIVATE_DIRECTORY_MODE,
-    PRIVATE_FILE_MODE,
     PrivateHome,
     PrivateHomeError,
     containing_git_worktree,
 )
+from core.private_permissions import is_reparse_point, set_private_permissions
 from scripts.import_applypilot import build_profile
 
 
@@ -108,16 +107,14 @@ def _safe_filename(path: Path, used: set[str]) -> str:
 def _private_copy(source: Path, destination: Path) -> None:
     """Atomically copy one regular file without following a leaf symlink."""
 
-    if source.is_symlink() or not source.is_file():
+    if is_reparse_point(source) or not source.is_file():
         raise ValueError("migration sources must be regular, non-symlink files")
-    if destination.is_symlink():
+    if is_reparse_point(destination):
         raise ValueError("migration destinations cannot be symlinks")
-    destination.parent.mkdir(
-        parents=True, exist_ok=True, mode=PRIVATE_DIRECTORY_MODE
-    )
-    if destination.parent.is_symlink():
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if is_reparse_point(destination.parent):
         raise ValueError("migration destination parents cannot be symlinks")
-    destination.parent.chmod(PRIVATE_DIRECTORY_MODE)
+    set_private_permissions(destination.parent, is_directory=True)
 
     source_flags = os.O_RDONLY
     if hasattr(os, "O_NOFOLLOW"):
@@ -132,7 +129,7 @@ def _private_copy(source: Path, destination: Path) -> None:
         raise
     temporary = Path(temp_name)
     try:
-        os.fchmod(temp_fd, PRIVATE_FILE_MODE)
+        set_private_permissions(temporary, is_directory=False)
         with (
             os.fdopen(source_fd, "rb", closefd=True) as source_handle,
             os.fdopen(temp_fd, "wb", closefd=True) as destination_handle,
@@ -141,7 +138,7 @@ def _private_copy(source: Path, destination: Path) -> None:
             destination_handle.flush()
             os.fsync(destination_handle.fileno())
         os.replace(temporary, destination)
-        destination.chmod(PRIVATE_FILE_MODE)
+        set_private_permissions(destination, is_directory=False)
     except BaseException:
         for descriptor in (source_fd, temp_fd):
             try:
@@ -153,7 +150,7 @@ def _private_copy(source: Path, destination: Path) -> None:
 
 
 def _backup_existing(path: Path, backup_dir: Path) -> None:
-    if path.is_symlink():
+    if is_reparse_point(path):
         raise ValueError("existing migration destinations cannot be symlinks")
     if not path.exists():
         return
@@ -394,7 +391,7 @@ def migrate(
 
     if legacy_profile_path is not None:
         requested_legacy = legacy_profile_path.expanduser()
-        if requested_legacy.is_symlink():
+        if is_reparse_point(requested_legacy):
             raise ValueError("legacy profile cannot be a symlink")
         resolved_legacy = requested_legacy.resolve()
         if containing_git_worktree(resolved_legacy) is not None:
@@ -407,7 +404,7 @@ def migrate(
     staging_root = Path(
         tempfile.mkdtemp(prefix=".migration-staging-", dir=paths.root)
     )
-    staging_root.chmod(PRIVATE_DIRECTORY_MODE)
+    set_private_permissions(staging_root, is_directory=True)
     try:
         staged_files: list[_StagedFile] = []
         variants, default_resume, resume_files = _copy_resume_variants(
@@ -477,7 +474,7 @@ def migrate(
                 "user_data_dir": str(paths.chromium_profile),
                 "chromium_user_data_dir": str(paths.chromium_profile),
             },
-            # Only policy booleans are migrated; credentials remain Keychain-only.
+            # Only policy booleans are migrated; credentials remain OS-vault-only.
             "workday": {"auto_login": True, "auto_register": True},
             "ai": {
                 "default_backend": "codex_cli",

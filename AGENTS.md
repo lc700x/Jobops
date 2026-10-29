@@ -4,8 +4,8 @@ Jobops is a Codex-native, privacy-first job application operating system. Codex 
 
 ## Non-negotiable boundaries
 
-- Real candidate data lives in `~/Library/Application Support/Jobops` or `JOBOPS_HOME`, never in this repository.
-- ATS and mailbox account passwords plus the permit HMAC key live in macOS Keychain. Optional AI-provider API tokens may be supplied only through runtime environment variables and must never be persisted. Never pass a password, token, cookie, recovery code, or mailbox secret in argv, CSV, YAML, JSON, logs, prompts, fixtures, or Git.
+- Real candidate data lives in `~/Library/Application Support/Jobops` on macOS, `%LOCALAPPDATA%\Jobops` on Windows, or `JOBOPS_HOME`, never in this repository.
+- ATS and mailbox account passwords plus the permit HMAC key live in macOS Keychain or Windows Credential Manager. Optional AI-provider API tokens may be supplied only through runtime environment variables and must never be persisted. Never pass a password, token, cookie, recovery code, or mailbox secret in argv, CSV, YAML, JSON, logs, prompts, fixtures, or Git.
 - Never invent or infer identity, legal name, work authorization, sponsorship, employment, education, compensation, EEO/self-identification, criminal/conflict answers, dates, metrics, or portfolio claims.
 - Never bypass CAPTCHA, MFA, account locks, anti-bot controls, or mailbox security warnings.
 - A submit click is not success. Only `SUBMITTED_VERIFIED` with an eligible `EvidenceRef` is submitted.
@@ -25,6 +25,8 @@ Jobops is a Codex-native, privacy-first job application operating system. Codex 
 .venv/bin/python jobctl.py submit-reviewed --run-id run-... --approve
 ```
 
+On Windows, run `setup.ps1` and use `.\.venv\Scripts\python.exe` in place of `.venv/bin/python`.
+
 `apply-csv` stops at Review by default. `--approve-gate-a` is an explicit review of prepared materials. Human Gate B is never accepted in the same invocation: inspect the persisted Review, then use `submit-reviewed --run-id ... --approve`. Never infer either human approval.
 
 ## Application policy boundary
@@ -41,7 +43,7 @@ Any bespoke or targeted plan—legacy High/Medium—must load a valid `documents
 - `adapters/{greenhouse,lever,ashby,jobvite,workday}.py`: supported ATS implementations.
 - `adapters/generic_ai/`: bounded observer, fingerprinter, resolver, executor, verifier, and value-free cache.
 - `adapters/stagehand_adapter.py`: small legacy boolean façade; production routing must not use `adapters/legacy/stagehand_monolith.py`.
-- `auth/`: Security.framework credential provider and optional mailbox correlation.
+- `auth/`: macOS Keychain and Windows Credential Manager providers plus optional mailbox correlation.
 - `workers/node/`: versioned JSON-lines coexistence bridge; no payload in argv.
 - `.agents/skills/`: auto-discovered, repository-scoped Codex workflows; no candidate data.
 

@@ -7,6 +7,8 @@ description: Prepare truthful, tier-aware resumes and cover letters from the pri
 
 This is a repository-scoped Codex workflow for the Jobops CLI.
 
+On Windows, use `.\.venv\Scripts\python.exe` in place of `.venv/bin/python`.
+
 Create application materials in Private Home; keep source facts and generated files outside Git.
 
 ## Workflow
@@ -17,7 +19,7 @@ Create application materials in Private Home; keep source facts and generated fi
    - High: parse the JD, select only verified experience, reorder and rephrase for relevance, render and visually inspect a dedicated resume, and write a concise narrative cover letter. Connect one real experience to the role and the company's stated mission or product; avoid a mechanical template.
    - Medium: route the closest verified resume and make limited keyword/order edits when they improve evidence alignment. Under the current default policy, write a concise targeted letter.
    - Low: use an approved existing variant. Generate a letter only if the ATS requires it.
-4. Save generated sources and rendered files below `~/Library/Application Support/Jobops/documents/generated/<job_id>/`; never write materials into the repository.
+4. Save generated sources and rendered files below the active Private Home's `documents/generated/<job_id>/` directory (default: `~/Library/Application Support/Jobops` on macOS or `%LOCALAPPDATA%\Jobops` on Windows); never write materials into the repository.
 5. Verify that dates, employers, degrees, metrics, technologies, location, authorization, and contact details match the private vault. Remove any unsupported assertion.
 6. Render the final resume and visually inspect every page for clipping, overflow, missing glyphs, broken links, and accidental blank pages.
 7. Write `manifest.json` in the job directory using schema version 1. Bind it to `job_id`, `job_url_hash`, tier, artifact content hashes, and the attestations below. Use relative artifact paths. Never copy candidate content into the manifest.

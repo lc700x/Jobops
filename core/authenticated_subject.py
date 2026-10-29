@@ -15,7 +15,7 @@ from typing import Any, Protocol, runtime_checkable
 from auth.credentials import (
     CredentialStore,
     CredentialStoreError,
-    MacOSSecurityCredentialStore,
+    default_credential_store,
 )
 
 
@@ -208,10 +208,10 @@ def _session_from_dict(value: Any) -> AuthenticatedSubjectSession:
 
 
 class KeychainAuthenticatedSubjectSessionProvider:
-    """Validate opaque cookie credentials against Keychain session records."""
+    """Validate opaque cookie credentials against OS credential records."""
 
     def __init__(self, store: CredentialStore | None = None) -> None:
-        self._store = store or MacOSSecurityCredentialStore()
+        self._store = store or default_credential_store()
 
     def save_session(
         self,

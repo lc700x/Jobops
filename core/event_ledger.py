@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import uuid
@@ -25,6 +26,7 @@ from .outcomes import (
     EvidenceRef,
     utc_now,
 )
+from .private_permissions import set_private_permissions
 
 
 LEDGER_SCHEMA_VERSION = 1
@@ -540,11 +542,11 @@ class EventLedger:
         self.path = Path(path).expanduser().resolve()
         self.timeout_seconds = timeout_seconds
         parent_existed = self.path.parent.exists()
-        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if not parent_existed:
-            self.path.parent.chmod(0o700)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not parent_existed or os.name == "nt":
+            set_private_permissions(self.path.parent, is_directory=True)
         self._initialize()
-        self.path.chmod(0o600)
+        set_private_permissions(self.path, is_directory=False)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(

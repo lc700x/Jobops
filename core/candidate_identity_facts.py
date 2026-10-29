@@ -20,7 +20,8 @@ from .application_execution_profile import (
     ApplicationExecutionIdentityFieldKey,
     normalize_application_execution_identity_value,
 )
-from .private_home import PRIVATE_FILE_MODE, PrivateHome, PrivateHomeError
+from .private_home import PrivateHome, PrivateHomeError
+from .private_permissions import set_private_permissions
 
 
 CANDIDATE_IDENTITY_FACT_CONTRACT_VERSION = "candidate-identity-fact-v1"
@@ -510,7 +511,7 @@ class PrivateHomeCandidateIdentityFactRepository:
         connection.execute("PRAGMA busy_timeout = 15000")
         connection.execute("PRAGMA journal_mode = DELETE")
         self._initialize(connection)
-        os.chmod(self.path, PRIVATE_FILE_MODE)
+        set_private_permissions(self.path, is_directory=False)
         return connection
 
     @staticmethod

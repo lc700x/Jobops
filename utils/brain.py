@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.private_home import PRIVATE_DIRECTORY_MODE, PrivateHome
+from core.private_permissions import set_private_permissions
 
 
 # Compatibility name only. Calls resolve JOBOPS_HOME again so an environment
@@ -132,7 +133,7 @@ class ClaudeBrain:
         paths = home.ensure()
         cache_dir = paths.cache / "llm"
         cache_dir.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIRECTORY_MODE)
-        cache_dir.chmod(PRIVATE_DIRECTORY_MODE)
+        set_private_permissions(cache_dir, is_directory=True)
         cache_file = cache_dir / f"{cache_key}.txt"
         if cache_file.exists():
             if self.verbose:

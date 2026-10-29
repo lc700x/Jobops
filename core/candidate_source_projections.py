@@ -49,7 +49,8 @@ from .pdf_page_renderer import (
     PdfPageRendererPort,
     PdfRendererUnavailableError,
 )
-from .private_home import PRIVATE_FILE_MODE, PrivateHome
+from .private_home import PrivateHome
+from .private_permissions import set_private_permissions
 
 
 CANDIDATE_SOURCE_PROJECTION_CONTRACT_VERSION = "candidate-source-projection-v1"
@@ -1300,7 +1301,7 @@ class PrivateHomeCandidateSourceProjectionRepository:
         if row is None or row["value"] != expected:
             connection.close()
             raise _ProjectionIntegrityError("projection schema is unsupported")
-        os.chmod(self.path, PRIVATE_FILE_MODE)
+        set_private_permissions(self.path, is_directory=False)
         return connection
 
     @staticmethod

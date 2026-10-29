@@ -10,6 +10,8 @@ from .credentials import (
     CredentialStoreError,
     InMemoryCredentialStore,
     MacOSSecurityCredentialStore,
+    WindowsCredentialStore,
+    default_credential_store,
 )
 from .mailbox import (
     CorrelatedMailboxVerifier,
@@ -40,6 +42,8 @@ __all__ = [
     "IMAPProviderDisabled",
     "IMAPProviderError",
     "MacOSSecurityCredentialStore",
+    "WindowsCredentialStore",
+    "default_credential_store",
     "MailboxMessage",
     "MailboxProvider",
     "MailboxVerifier",

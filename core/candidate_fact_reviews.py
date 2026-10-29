@@ -46,7 +46,8 @@ from .candidate_source_projections import (
     read_candidate_projection_asset,
     read_candidate_projection_block,
 )
-from .private_home import PRIVATE_FILE_MODE, PrivateHome
+from .private_home import PrivateHome
+from .private_permissions import set_private_permissions
 
 
 CANDIDATE_FACT_REVIEW_CONTRACT_VERSION = "candidate-fact-review-v1"
@@ -486,7 +487,7 @@ class PrivateHomeCandidateFactReviewDecisionRepository:
         if row is None or row["value"] != version:
             connection.close()
             raise _ReviewIntegrityError("review schema is unsupported")
-        os.chmod(self.path, PRIVATE_FILE_MODE)
+        set_private_permissions(self.path, is_directory=False)
         return connection
 
     @staticmethod

@@ -1,9 +1,9 @@
 """Private, repository-external storage for Jobops user data.
 
-The public repository contains schemas and synthetic fixtures only.  Real profile
+The public repository contains schemas and synthetic fixtures only. Real profile
 facts, application materials, browser state, queues, logs, and evidence live below
-``JOBOPS_HOME``.  Passwords and access tokens do not belong here; they are stored
-through the platform credential provider (macOS Keychain by default).
+``JOBOPS_HOME``. Passwords and access tokens do not belong here; they are stored
+through macOS Keychain or Windows Credential Manager.
 """
 
 from __future__ import annotations
@@ -15,12 +15,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from core.private_permissions import (
+    is_reparse_point,
+    owned_by_current_user,
+    set_private_permissions,
+)
+
 
 JOBOPS_HOME_ENV = "JOBOPS_HOME"
 PRIVATE_DIRECTORY_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
 PRIVATE_HOME_MARKER = ".jobops-private-home"
 PRIVATE_HOME_MARKER_CONTENT = "jobops-private-home-v1\n"
+PRIVATE_HOME_MARKER_WINDOWS_CONTENT = "jobops-private-home-windows-v1\n"
+_PRIVATE_HOME_MARKER_CONTENTS = frozenset(
+    {PRIVATE_HOME_MARKER_CONTENT, PRIVATE_HOME_MARKER_WINDOWS_CONTENT}
+)
 
 _LEGACY_PRIVATE_HOME_ENTRIES = frozenset(
     {
@@ -57,6 +67,12 @@ def default_private_home(
     active_platform = platform or sys.platform
     if active_platform == "darwin":
         return (user_home / "Library" / "Application Support" / "Jobops").resolve()
+    if active_platform == "win32":
+        local_app_data = env.get("LOCALAPPDATA")
+        base = Path(local_app_data).expanduser() if local_app_data else (
+            user_home / "AppData" / "Local"
+        )
+        return (base / "Jobops").resolve()
 
     xdg_data = env.get("XDG_DATA_HOME")
     if xdg_data:
@@ -65,20 +81,22 @@ def default_private_home(
 
 
 def _ensure_private_directory(path: Path) -> Path:
-    if path.is_symlink():
-        raise PrivateHomeError(f"private directory cannot be a symlink: {path}")
+    if is_reparse_point(path):
+        raise PrivateHomeError(f"private directory cannot be a symlink or junction: {path}")
     path.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIRECTORY_MODE)
     if not path.is_dir():
         raise PrivateHomeError(f"private path is not a directory: {path}")
-    path.chmod(PRIVATE_DIRECTORY_MODE)
+    try:
+        set_private_permissions(path, is_directory=True)
+    except (OSError, RuntimeError) as exc:
+        raise PrivateHomeError("could not secure a private directory") from exc
     return path
 
 
 def _owned_by_current_user(path: Path) -> bool:
     """Return whether ``path`` is owned by this process' effective user."""
 
-    getuid = getattr(os, "geteuid", None)
-    return getuid is None or path.stat(follow_symlinks=False).st_uid == getuid()
+    return owned_by_current_user(path)
 
 
 def _write_ownership_marker(root: Path) -> None:
@@ -88,23 +106,66 @@ def _write_ownership_marker(root: Path) -> None:
         flags |= os.O_NOFOLLOW
     descriptor = os.open(marker, flags, PRIVATE_FILE_MODE)
     try:
-        os.fchmod(descriptor, PRIVATE_FILE_MODE)
+        set_private_permissions(marker, is_directory=False)
         os.write(descriptor, PRIVATE_HOME_MARKER_CONTENT.encode("ascii"))
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
 
 
+def _write_windows_ownership_marker(root: Path) -> None:
+    marker = root / PRIVATE_HOME_MARKER
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(marker, flags, PRIVATE_FILE_MODE)
+    try:
+        set_private_permissions(marker, is_directory=False)
+        os.write(descriptor, PRIVATE_HOME_MARKER_WINDOWS_CONTENT.encode("ascii"))
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _secure_existing_windows_tree(root: Path) -> None:
+    """Upgrade an older owned home to protected per-user Windows ACLs once."""
+
+    pending = [root]
+    paths: list[Path] = []
+    while pending:
+        current = pending.pop()
+        if is_reparse_point(current):
+            raise PrivateHomeError("existing private home contains a reparse point")
+        if not _owned_by_current_user(current):
+            raise PrivateHomeError("existing private home contains another owner")
+        if not current.is_dir() and not current.is_file():
+            raise PrivateHomeError("existing private home contains an unsupported entry")
+        paths.append(current)
+        if current.is_dir():
+            try:
+                pending.extend(current.iterdir())
+            except OSError as exc:
+                raise PrivateHomeError("could not inspect existing private home") from exc
+
+    for current in sorted(paths, key=lambda item: len(item.parts), reverse=True):
+        try:
+            set_private_permissions(current, is_directory=current.is_dir())
+        except (OSError, RuntimeError) as exc:
+            raise PrivateHomeError("could not secure existing private home") from exc
+
+
 def _validate_or_claim_private_root(root: Path) -> None:
     """Claim a new/empty root or validate an explicitly owned Jobops root.
 
-    This prevents a typo such as ``JOBOPS_HOME=~/Documents`` from chmodding and
-    populating an unrelated directory.  A secure, recognizable pre-marker
-    Jobops layout is adopted once for compatibility with early local builds.
+    This prevents a typo such as ``JOBOPS_HOME=~/Documents`` from changing
+    permissions on and populating an unrelated directory. A secure, recognizable
+    pre-marker Jobops layout is adopted once for compatibility with early builds.
     """
 
-    if root.is_symlink():
-        raise PrivateHomeError(f"JOBOPS_HOME cannot be a symlink: {root}")
+    if is_reparse_point(root):
+        raise PrivateHomeError(
+            f"JOBOPS_HOME cannot be a symlink or junction: {root}"
+        )
     if not root.exists():
         root.mkdir(parents=True, mode=PRIVATE_DIRECTORY_MODE)
     if not root.is_dir():
@@ -113,8 +174,8 @@ def _validate_or_claim_private_root(root: Path) -> None:
         raise PrivateHomeError("JOBOPS_HOME must be owned by the current user")
 
     marker = root / PRIVATE_HOME_MARKER
-    if marker.exists() or marker.is_symlink():
-        if marker.is_symlink() or not marker.is_file():
+    if marker.exists() or is_reparse_point(marker):
+        if is_reparse_point(marker) or not marker.is_file():
             raise PrivateHomeError("JOBOPS_HOME ownership marker is unsafe")
         if not _owned_by_current_user(marker):
             raise PrivateHomeError("JOBOPS_HOME ownership marker has the wrong owner")
@@ -122,10 +183,21 @@ def _validate_or_claim_private_root(root: Path) -> None:
             content = marker.read_text(encoding="ascii")
         except (OSError, UnicodeError) as exc:
             raise PrivateHomeError("JOBOPS_HOME ownership marker is unreadable") from exc
-        if content != PRIVATE_HOME_MARKER_CONTENT:
+        if content not in _PRIVATE_HOME_MARKER_CONTENTS:
             raise PrivateHomeError("JOBOPS_HOME ownership marker is invalid")
-        marker.chmod(PRIVATE_FILE_MODE)
-        root.chmod(PRIVATE_DIRECTORY_MODE)
+        if os.name == "nt" and content == PRIVATE_HOME_MARKER_CONTENT:
+            _secure_existing_windows_tree(root)
+            try:
+                marker.write_text(
+                    PRIVATE_HOME_MARKER_WINDOWS_CONTENT,
+                    encoding="ascii",
+                )
+                set_private_permissions(marker, is_directory=False)
+            except OSError as exc:
+                raise PrivateHomeError("could not update the private-home marker") from exc
+        else:
+            set_private_permissions(root, is_directory=True)
+            set_private_permissions(marker, is_directory=False)
         return
 
     entries = tuple(root.iterdir())
@@ -135,8 +207,8 @@ def _validate_or_claim_private_root(root: Path) -> None:
         recognized_legacy_layout = (
             names <= _LEGACY_PRIVATE_HOME_ENTRIES
             and {"profile", "state", "browser"} <= names
-            and mode & 0o077 == 0
-            and all(not entry.is_symlink() for entry in entries)
+            and (os.name == "nt" or mode & 0o077 == 0)
+            and all(not is_reparse_point(entry) for entry in entries)
         )
         if not recognized_legacy_layout:
             raise PrivateHomeError(
@@ -144,9 +216,15 @@ def _validate_or_claim_private_root(root: Path) -> None:
                 "new empty directory instead"
             )
 
-    root.chmod(PRIVATE_DIRECTORY_MODE)
+    if os.name == "nt" and entries:
+        _secure_existing_windows_tree(root)
+    else:
+        set_private_permissions(root, is_directory=True)
     try:
-        _write_ownership_marker(root)
+        if os.name == "nt":
+            _write_windows_ownership_marker(root)
+        else:
+            _write_ownership_marker(root)
     except FileExistsError:
         # A concurrent initializer won the race. Validate its marker rather
         # than overwriting it.
@@ -447,9 +525,9 @@ class PrivateHome:
         )
 
     def ensure(self) -> PrivatePaths:
-        if self.root.expanduser().is_symlink():
+        if is_reparse_point(self.root.expanduser()):
             raise PrivateHomeError(
-                f"JOBOPS_HOME cannot be a symlink: {self.root.expanduser()}"
+                f"JOBOPS_HOME cannot be a symlink or junction: {self.root.expanduser()}"
             )
         paths = self.paths
         worktree = _containing_git_worktree(paths.root)
@@ -461,6 +539,7 @@ class PrivateHome:
         _validate_or_claim_private_root(paths.root)
         for directory in (
             paths.profile,
+            paths.root / "config",
             paths.verified_application_execution_profiles,
             paths.queue,
             paths.documents,
@@ -543,9 +622,9 @@ class PrivateHome:
         cursor = root
         for part in relative.parts:
             cursor /= part
-            if cursor.is_symlink():
+            if is_reparse_point(cursor):
                 raise PrivateHomeError(
-                    f"private path cannot contain a symlink: {cursor}"
+                    f"private path cannot contain a symlink or junction: {cursor}"
                 )
         resolved = candidate.resolve()
         try:
@@ -555,38 +634,38 @@ class PrivateHome:
         return resolved
 
     def ensure_private_file(self, path: str | Path) -> Path:
-        """Create a private file when absent and enforce mode 0600."""
+        """Create a private file when absent and enforce owner-only access."""
 
         candidate = self.contained_path(path)
         _ensure_private_directory(candidate.parent)
-        if candidate.is_symlink():
+        if is_reparse_point(candidate):
             raise PrivateHomeError(f"private file cannot be a symlink: {candidate}")
         descriptor = os.open(candidate, os.O_CREAT | os.O_APPEND, PRIVATE_FILE_MODE)
         try:
-            os.fchmod(descriptor, PRIVATE_FILE_MODE)
+            set_private_permissions(candidate, is_directory=False)
         finally:
             os.close(descriptor)
         return candidate
 
     def write_bytes(self, path: str | Path, content: bytes) -> Path:
-        """Atomically replace a private file with mode 0600."""
+        """Atomically replace a private file with owner-only access."""
 
         candidate = self.contained_path(path)
         _ensure_private_directory(candidate.parent)
-        if candidate.is_symlink():
+        if is_reparse_point(candidate):
             raise PrivateHomeError(f"private file cannot be a symlink: {candidate}")
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{candidate.name}.", dir=candidate.parent
         )
         temporary = Path(temporary_name)
         try:
-            os.fchmod(descriptor, PRIVATE_FILE_MODE)
+            set_private_permissions(temporary, is_directory=False)
             with os.fdopen(descriptor, "wb", closefd=True) as handle:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, candidate)
-            candidate.chmod(PRIVATE_FILE_MODE)
+            set_private_permissions(candidate, is_directory=False)
         except BaseException:
             try:
                 os.close(descriptor)
@@ -605,7 +684,7 @@ class PrivateHome:
 
         candidate = self.contained_path(path)
         _ensure_private_directory(candidate.parent)
-        if candidate.is_symlink():
+        if is_reparse_point(candidate):
             raise PrivateHomeError(f"private file cannot be a symlink: {candidate}")
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         if hasattr(os, "O_NOFOLLOW"):
@@ -615,7 +694,7 @@ class PrivateHome:
         except FileExistsError:
             return False
         try:
-            os.fchmod(descriptor, PRIVATE_FILE_MODE)
+            set_private_permissions(candidate, is_directory=False)
             with os.fdopen(descriptor, "wb", closefd=True) as handle:
                 handle.write(content)
                 handle.flush()

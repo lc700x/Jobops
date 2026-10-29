@@ -1,4 +1,4 @@
-"""Tenant-scoped Keychain credentials for non-Workday ATS accounts."""
+"""Tenant-scoped OS credential-manager entries for non-Workday ATS accounts."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import ipaddress
 import re
 from urllib.parse import urlsplit
 
-from .credentials import CredentialStore, MacOSSecurityCredentialStore
+from .credentials import CredentialStore, default_credential_store
 from .passwords import generate_strong_password
 
 
@@ -61,7 +61,7 @@ def get_site_credential(
 ) -> SiteCredential | None:
     if not str(email or "").strip():
         raise ValueError("email is required")
-    backend = store or MacOSSecurityCredentialStore()
+    backend = store or default_credential_store()
     service = site_service(url, tenant)
     password = backend.get(service, email)
     if password is None:
@@ -79,11 +79,11 @@ def save_site_credential(
 ) -> SiteCredential:
     if not str(email or "").strip() or not password:
         raise ValueError("email and password are required")
-    backend = store or MacOSSecurityCredentialStore()
+    backend = store or default_credential_store()
     service = site_service(url, tenant)
     backend.set(service, email, password)
     if backend.get(service, email) != password:
-        raise RuntimeError("Keychain write verification failed")
+        raise RuntimeError("OS credential write verification failed")
     return SiteCredential(email=email, password=password, service=service)
 
 
@@ -97,7 +97,7 @@ def get_or_create_site_credential(
 ) -> SiteCredential:
     """Load an existing password or persist a generated one before form entry."""
 
-    backend = store or MacOSSecurityCredentialStore()
+    backend = store or default_credential_store()
     existing = get_site_credential(url, tenant, email, store=backend)
     if existing is not None:
         return existing

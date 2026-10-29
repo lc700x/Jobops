@@ -7,6 +7,7 @@ import hashlib
 from pathlib import Path
 
 from core.private_home import PRIVATE_DIRECTORY_MODE, PrivateHome
+from core.private_permissions import set_private_permissions
 
 
 CACHE_DIR = PrivateHome.discover().paths.cache / "resume-text"
@@ -27,7 +28,7 @@ def extract_resume_text(resume_path: str) -> str:
     paths = home.ensure()
     cache_dir = paths.cache / "resume-text"
     cache_dir.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIRECTORY_MODE)
-    cache_dir.chmod(PRIVATE_DIRECTORY_MODE)
+    set_private_permissions(cache_dir, is_directory=True)
     cache_file = cache_dir / f"resume_{file_hash}.txt"
 
     if cache_file.exists():

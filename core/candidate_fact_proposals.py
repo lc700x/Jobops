@@ -40,7 +40,8 @@ from .candidate_identity_facts import (
     CandidateIdentityFactSourceRef,
 )
 from .candidate_information_sources import CandidateInformationSourceKind
-from .private_home import PRIVATE_FILE_MODE, PrivateHome
+from .private_home import PrivateHome
+from .private_permissions import set_private_permissions
 
 
 CANDIDATE_FACT_PROPOSAL_CONTRACT_VERSION = "candidate-fact-proposal-v1"
@@ -666,7 +667,7 @@ class PrivateHomeCandidateFactProposalRepository:
         if row is None or row["value"] != expected:
             connection.close()
             raise _ProposalIntegrityError("proposal schema is unsupported")
-        os.chmod(self.path, PRIVATE_FILE_MODE)
+        set_private_permissions(self.path, is_directory=False)
         return connection
 
     @staticmethod

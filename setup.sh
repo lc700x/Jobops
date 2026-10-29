@@ -6,6 +6,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+        echo "Use setup.ps1 from PowerShell on Windows." >&2
+        exit 1
+        ;;
+esac
+
 if ! command -v python3 >/dev/null 2>&1; then
     echo "Python 3.11 or newer is required." >&2
     exit 1
@@ -21,7 +28,8 @@ python3 -m venv .venv
 .venv/bin/python -m playwright install chromium
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-    echo "Dependencies installed. Jobops application execution currently requires macOS Keychain."
+    echo "Dependencies installed. Use setup.ps1 on Windows for initialization with Windows Credential Manager."
+    echo "Linux can install dependencies, but Jobops has no Linux production credential-store backend."
     echo "Run the offline test suite with: .venv/bin/python -m pytest -q"
     exit 0
 fi

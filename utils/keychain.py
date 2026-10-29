@@ -1,7 +1,7 @@
 """Compatibility helpers for tenant-scoped ATS credentials.
 
-Secrets are stored through :mod:`auth.credentials`, which calls Apple's
-Security.framework directly.  No password is ever passed to a subprocess.
+The historical API name is retained; secrets use the host OS credential
+manager. No password is ever passed to a subprocess.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from auth.credentials import (
     CredentialStore,
     CredentialStoreError,
-    MacOSSecurityCredentialStore,
+    default_credential_store as _platform_credential_store,
 )
 from auth.workday_hosts import is_trusted_workday_host
 from auth.passwords import generate_strong_password
@@ -40,7 +40,7 @@ def default_credential_store() -> CredentialStore:
     """Return the process-wide credential store, created lazily."""
     global _default_store
     if _default_store is None:
-        _default_store = MacOSSecurityCredentialStore()
+        _default_store = _platform_credential_store()
     return _default_store
 
 

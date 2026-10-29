@@ -20,6 +20,7 @@ from .leases import (
     RenewingLease,
 )
 from .private_home import PRIVATE_DIRECTORY_MODE, PrivateHome
+from .private_permissions import set_private_permissions
 
 
 BROWSER_RUNTIME_CONFIG_CONTRACT_VERSION = "browser-runtime-config-v1"
@@ -263,7 +264,7 @@ def _validate_profile_directory(
         )
         if directory.is_symlink() or not directory.is_dir():
             raise OSError
-        directory.chmod(PRIVATE_DIRECTORY_MODE)
+        set_private_permissions(directory, is_directory=True)
     except OSError:
         raise ProductionBrowserRuntimeError(
             BrowserRuntimeFailure.PROFILE_DIRECTORY_INVALID

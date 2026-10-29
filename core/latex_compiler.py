@@ -153,7 +153,7 @@ def sandbox_environment(sandbox: Path) -> dict[str, str]:
     """A minimal, deterministic environment; nothing sensitive is inherited."""
 
     path = os.environ.get("PATH", "/usr/bin:/bin")
-    return {
+    environment = {
         "PATH": path,
         "HOME": str(sandbox),
         "TMPDIR": str(sandbox),
@@ -168,6 +168,13 @@ def sandbox_environment(sandbox: Path) -> dict[str, str]:
         "openin_any": "p",
         "shell_escape": "f",
     }
+    if os.name == "nt":
+        system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+        if system_root:
+            environment["SystemRoot"] = system_root
+        environment["TEMP"] = str(sandbox)
+        environment["TMP"] = str(sandbox)
+    return environment
 
 
 def _apply_resource_limits() -> None:  # pragma: no cover - child process only

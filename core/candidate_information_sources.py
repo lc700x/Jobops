@@ -26,7 +26,8 @@ from .candidate_identity_facts import (
     CandidateIdentityFactSourceKind,
     CandidateIdentityFactSourceRef,
 )
-from .private_home import PRIVATE_FILE_MODE, PrivateHome, PrivateHomeError
+from .private_home import PrivateHome, PrivateHomeError
+from .private_permissions import set_private_permissions
 
 
 CANDIDATE_INFORMATION_SOURCE_CONTRACT_VERSION = (
@@ -923,7 +924,7 @@ class PrivateHomeCandidateInformationSourceRepository:
         connection.execute("PRAGMA busy_timeout = 15000")
         connection.execute("PRAGMA journal_mode = DELETE")
         self._initialize(connection)
-        os.chmod(self.path, PRIVATE_FILE_MODE)
+        set_private_permissions(self.path, is_directory=False)
         return connection
 
     @staticmethod

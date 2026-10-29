@@ -1,11 +1,11 @@
-"""Keychain-backed secrets used by the trusted Jobops core."""
+"""OS credential-manager secrets used by the trusted Jobops core."""
 
 from __future__ import annotations
 
 import base64
 import binascii
 
-from auth.credentials import CredentialStore, MacOSSecurityCredentialStore
+from auth.credentials import CredentialStore, default_credential_store
 
 from .permits import PermitService
 
@@ -17,7 +17,7 @@ PERMIT_SECRET_ACCOUNT = "hmac-v1"
 def load_or_create_permit_secret(store: CredentialStore | None = None) -> bytes:
     """Load the permit HMAC key or create it directly in the credential store."""
 
-    backend = store or MacOSSecurityCredentialStore()
+    backend = store or default_credential_store()
     encoded = backend.get(PERMIT_SECRET_SERVICE, PERMIT_SECRET_ACCOUNT)
     if encoded:
         try:

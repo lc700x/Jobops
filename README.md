@@ -10,9 +10,9 @@ release focuses on reaching Review reliably on Greenhouse, Lever, Ashby,
 Jobvite, and Workday—not pretending every website can be submitted
 autonomously.
 
-The repository is public-safe by design. Candidate facts, verified answers, resumes, generated materials, queue state, browser sessions, evidence, and logs live in a repository-external Private Home. ATS and mailbox account passwords plus the permit HMAC key live in macOS Keychain. Optional AI-provider API tokens are read from runtime environment variables only and are never persisted in the repository or Private Home.
+The repository is public-safe by design. Candidate facts, verified answers, resumes, generated materials, queue state, browser sessions, evidence, and logs live in a repository-external Private Home. ATS and mailbox account passwords plus the permit HMAC key live in macOS Keychain or Windows Credential Manager. Windows protects the Private Home with a protected ACL for the current user and Local System. Optional AI-provider API tokens are read from runtime environment variables only and are never persisted in the repository or Private Home.
 
-Login and account registration are automated states, not routine user tasks. Jobops checks a host-and-tenant-scoped Keychain item first; when none exists and policy allows registration, it generates a strong password, verifies the Keychain write before form entry, completes safe registration fields, keeps optional marketing consent disabled, and accepts required account/privacy terms. It pauses only at CAPTCHA, MFA, email verification that the optional mailbox agent cannot complete, or an account lock. The page is handed off with all other safe fields already complete, then resumed automatically after verification.
+Login and account registration are automated states, not routine user tasks. Jobops checks a host-and-tenant-scoped OS credential item first; when none exists and policy allows registration, it generates a strong password, verifies the credential write before form entry, completes safe registration fields, keeps optional marketing consent disabled, and accepts required account/privacy terms. It pauses only at CAPTCHA, MFA, email verification that the optional mailbox agent cannot complete, or an account lock. The page is handed off with all other safe fields already complete, then resumed automatically after verification.
 
 ## Current status
 
@@ -38,8 +38,8 @@ The implementation now includes:
 - two HMAC-signed, expiring, one-time permits bound to job, material, answer, policy, and Review hashes;
 - a shared Adapter Protocol with deterministic Greenhouse, Lever, Ashby, and Jobvite adapters;
 - a deterministic Workday login, registration, email-verification handoff, multi-stage application, Review, submit, and confirmation state machine;
-- a macOS Security.framework credential backend that never passes passwords in process arguments;
-- host-and-tenant-scoped Keychain credentials for long-tail ATS account registration;
+- macOS Security.framework and Windows Credential Manager backends that never pass passwords in process arguments;
+- host-and-tenant-scoped OS credentials for long-tail ATS account registration;
 - a compact generic adapter split into observer, fingerprinter, resolver, executor, verifier, and value-free recipe cache;
 - a persistent Chromium browser broker and Safari human-handoff option;
 - a versioned JSON-lines Node worker bridge so Node and Python can coexist while Python remains the production adapter runtime;
@@ -104,7 +104,7 @@ flowchart TB
     Home --> Facts["Sources, facts, answers, policies, plans, documents"]
     Home --> State["Runs, lineage, ledger, browser state, evidence"]
     ATS --> Auth["Authentication layer"]
-    Auth --> Keychain["macOS Keychain"]
+    Auth --> Keychain["OS Credential Manager<br/>macOS Keychain / Windows Credential Manager"]
     Auth --> Mailbox["Optional least-privilege mailbox verifier"]
 ```
 
@@ -112,7 +112,7 @@ Codex is the planner, material editor, and exception handler. It should not repe
 
 ## Quick start
 
-Requires Python 3.11+, Node.js for the optional bridge, and macOS for the production Keychain provider.
+Requires Python 3.11+ and Node.js for the optional bridge. The native production credential providers support macOS and Windows; Linux currently has no production credential-store backend.
 
 ```bash
 python3 -m venv .venv
@@ -120,11 +120,25 @@ python3 -m venv .venv
 .venv/bin/playwright install chromium
 ```
 
-Initialize the external runtime and Keychain permit key:
+On macOS, create the external runtime and Keychain permit key:
 
 ```bash
 .venv/bin/python jobctl.py init
 ```
+
+On Windows, run the PowerShell bootstrap (it installs dependencies, Chromium,
+initializes `%LOCALAPPDATA%\Jobops`, and stores the permit key in Windows
+Credential Manager):
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\setup.ps1
+```
+
+To install dependencies without initializing private storage, use
+`.\setup.ps1 -SkipInit`. Run later commands with
+`.\.venv\Scripts\python.exe jobctl.py ...`; the examples below use the
+POSIX virtual-environment path.
 
 Import an existing private ApplyPilot workflow without copying it into Git:
 
@@ -235,12 +249,12 @@ job
 → confirmation
 ```
 
-It auto-uses a tenant-scoped Keychain credential or creates a strong password when account registration is allowed. It pauses on CAPTCHA, MFA, account lock, ambiguous/missing email verification, or a required question without an exact verified answer. A successful login returns to the application state machine instead of restarting an open-ended browser agent.
+It auto-uses a tenant-scoped OS credential or creates a strong password when account registration is allowed. It pauses on CAPTCHA, MFA, account lock, ambiguous/missing email verification, or a required question without an exact verified answer. A successful login returns to the application state machine instead of restarting an open-ended browser agent.
 
 Email verification may be delegated to a narrowly scoped, read-only IMAP
 provider. It is disabled by default. Enabling it prompts for an IMAP/app
-password without echoing it, stores that password only in macOS Keychain, and
-writes only non-secret connection metadata to the private policy:
+password without echoing it, stores that password only in the host OS credential
+manager, and writes only non-secret connection metadata to the private policy:
 
 ```bash
 .venv/bin/python jobctl.py mailbox --host imap.example.com
@@ -251,7 +265,7 @@ exact email address, and a short correlation window. It returns only a bounded
 message projection and a digest-only message ID. Multiple matches, password
 reset/security messages, an untrusted sender, a CAPTCHA/MFA prompt, or a
 missing/invalid credential all fall back to human verification. Disable the
-agent without deleting its Keychain item with:
+agent without deleting its OS credential with:
 
 ```bash
 .venv/bin/python jobctl.py mailbox --disable
@@ -274,7 +288,7 @@ Known fields and cached recipes use zero model calls. `--semantic-mapper` may ma
 
 ## Private Home
 
-The default path is `~/Library/Application Support/Jobops`; set `JOBOPS_HOME` to override it. Jobops rejects any Private Home located inside a Git worktree.
+The default path is `~/Library/Application Support/Jobops` on macOS and `%LOCALAPPDATA%\Jobops` on Windows; set `JOBOPS_HOME` to override it. Jobops rejects any Private Home located inside a Git worktree.
 
 ```text
 Jobops/
@@ -330,7 +344,7 @@ data. See the official [Codex skill authoring guide](https://learn.chatgpt.com/d
 | `job-orchestrate` | Queue order, tier policy, permits, and safe continuation |
 | `job-materials` | Resume routing/tailoring, narrative letters, and fact QA |
 | `job-apply` | One bounded adapter episode to Review or verified submission |
-| `job-profile` | Private facts, answers, provenance, policy, and Keychain boundaries |
+| `job-profile` | Private facts, answers, provenance, policy, and OS credential boundaries |
 | `job-status` | Ledger/queue outcomes, blockers, metrics, and evidence coverage |
 
 Outreach, LinkedIn networking, cold email, and scheduled follow-up are not part of these core Skills.

@@ -11,7 +11,7 @@ from email.header import decode_header
 from datetime import datetime, timedelta
 from typing import Optional
 
-from auth.credentials import CredentialStore, MacOSSecurityCredentialStore
+from auth.credentials import CredentialStore, default_credential_store
 
 
 # Known ATS and recruiter email domains
@@ -43,12 +43,12 @@ def check_emails(
         email_config.get("keychain_service")
         or f"jobops.mailbox.imap.{imap_server.casefold()}"
     )
-    password = (credential_store or MacOSSecurityCredentialStore()).get(
+    password = (credential_store or default_credential_store()).get(
         service, email_addr
     ) if email_addr else None
 
     if not email_addr or not password:
-        print("  ⚠ Email not configured (missing address or Keychain credential)")
+        print("  ⚠ Email not configured (missing address or OS credential)")
         return []
 
     results = []

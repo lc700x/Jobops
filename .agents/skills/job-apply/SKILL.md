@@ -7,6 +7,8 @@ description: Execute one private job application through the deterministic ATS a
 
 This is a repository-scoped Codex workflow for the Jobops CLI.
 
+On Windows, use `.\.venv\Scripts\python.exe` in place of `.venv/bin/python`.
+
 Run one bounded application episode. Playwright adapters execute; Codex handles policy and exceptions.
 
 ## Workflow
@@ -14,7 +16,7 @@ Run one bounded application episode. Playwright adapters execute; Codex handles 
 1. Inspect the next row with `.venv/bin/python jobctl.py queue --list --limit 1` and its tier with `.venv/bin/python jobctl.py policy`.
 2. Ensure `$job-materials` has prepared the required tier-specific material. Do not silently substitute a missing requested resume variant.
 3. Run `.venv/bin/python jobctl.py apply-csv --limit 1` to reach Review. Supported Greenhouse, Lever, Ashby, Jobvite, and Workday forms should use zero model calls.
-4. Treat authentication as an internal state, not a user task. Read the tenant-scoped credential from macOS Keychain first. If none exists and policy allows registration, generate a strong password, persist and read it back from Keychain before entering it, create the account, leave optional marketing subscriptions off, and accept only required account/privacy terms. Do not ask the user to log in or create the account.
+4. Treat authentication as an internal state, not a user task. Read the tenant-scoped credential from the host OS vault (macOS Keychain or Windows Credential Manager) first. If none exists and policy allows registration, generate a strong password, persist and read it back from the OS vault before entering it, create the account, leave optional marketing subscriptions off, and accept only required account/privacy terms. Do not ask the user to log in or create the account.
 5. If the Outcome is `REVIEW_READY`, report the review and permit requirement. Do not translate this into “submitted.”
 6. For a human Gate B, first show the persisted Review and run ID. Only after a new explicit confirmation, run `.venv/bin/python jobctl.py submit-reviewed --run-id <run-id> --approve`. There is no same-invocation Gate B preapproval. Low-tier policy may use `apply-csv --submit`, but the core still consumes both bound permits.
 7. Accept success only as `SUBMITTED_VERIFIED` with evidence. Treat `SUBMIT_UNKNOWN` as a hard no-retry handoff.

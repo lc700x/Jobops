@@ -7,6 +7,8 @@ description: Analyze Jobops queue projections, run outcomes, blockers, permits, 
 
 This is a repository-scoped Codex workflow for the Jobops CLI.
 
+On Windows, use `.\.venv\Scripts\python.exe` in place of `.venv/bin/python`.
+
 Use deterministic ledger projections; do not reconstruct status from browser recollection.
 
 ## Workflow
