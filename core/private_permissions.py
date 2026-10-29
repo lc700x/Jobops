@@ -75,20 +75,20 @@ def _windows_api() -> tuple[Any, Any]:
 
     kernel32.GetCurrentProcess.argtypes = []
     kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-    kernel32.OpenProcessToken.argtypes = [
+    advapi32.OpenProcessToken.argtypes = [
         wintypes.HANDLE,
         wintypes.DWORD,
         ctypes.POINTER(wintypes.HANDLE),
     ]
-    kernel32.OpenProcessToken.restype = wintypes.BOOL
-    kernel32.GetTokenInformation.argtypes = [
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.argtypes = [
         wintypes.HANDLE,
         ctypes.c_int,
         ctypes.c_void_p,
         wintypes.DWORD,
         ctypes.POINTER(wintypes.DWORD),
     ]
-    kernel32.GetTokenInformation.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
     kernel32.LocalFree.argtypes = [ctypes.c_void_p]
@@ -173,21 +173,21 @@ def _sid_to_string(sid: ctypes.c_void_p) -> str:
 
 @lru_cache(maxsize=1)
 def _current_user_sid() -> str:
-    kernel32, _ = _windows_api()
+    kernel32, advapi32 = _windows_api()
     token = wintypes.HANDLE()
-    if not kernel32.OpenProcessToken(
+    if not advapi32.OpenProcessToken(
         kernel32.GetCurrentProcess(), _TOKEN_QUERY, ctypes.byref(token)
     ):
         raise ctypes.WinError(ctypes.get_last_error())
     try:
         required = wintypes.DWORD()
-        kernel32.GetTokenInformation(
+        advapi32.GetTokenInformation(
             token, _TOKEN_USER, None, 0, ctypes.byref(required)
         )
         if required.value == 0:
             raise PrivatePermissionError("Could not read the current Windows user")
         buffer = ctypes.create_string_buffer(required.value)
-        if not kernel32.GetTokenInformation(
+        if not advapi32.GetTokenInformation(
             token,
             _TOKEN_USER,
             buffer,
